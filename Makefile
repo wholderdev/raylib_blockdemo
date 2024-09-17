@@ -1,5 +1,5 @@
 CC = gcc
-CFLAGS = -Wall
+CFLAGS = -Wall -Wextra
 
 LIBS = -lraylib -lGL -lm -lpthread -ldl -lrt -lX11
 
