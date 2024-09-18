@@ -1,1 +1,2 @@
 Hitbox checking
+Remove printfs

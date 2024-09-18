@@ -18,7 +18,7 @@ enum TeamID {
 };
 
 typedef struct Square {
-	int owner;
+	enum TeamID owner;
 } Square;
 
 typedef struct Ball {
@@ -31,6 +31,7 @@ typedef struct Ball {
 typedef struct BallList {
 	Ball* ball;
 	struct BallList* next;
+	struct BallList* prev;
 } BallList;
 
 static const Color ballOutline = DARKGRAY;//BLACK;
@@ -52,11 +53,12 @@ static BallList* bl = { 0 };
 
 static BallList* CreateBallList(void);
 static Ball* CreateBall(void);
+static void RemoveBallListNode(BallList* curBL);
 static void DestroyBallList(void);
 static void DestroyBall(Ball* ball);
 
 static void InitGame(void);
-static void UpdateBall(Ball* ball, float delta);
+static int UpdateBall(Ball* ball, float delta);
 static void UpdateGame(void);
 
 static Color GetTeamColor(enum TeamID owner);
@@ -87,6 +89,7 @@ BallList* CreateBallList(void)
 	BallList* toRet = (struct BallList*)malloc(sizeof(struct BallList));
 	toRet->ball = NULL;
 	toRet->next = NULL;
+	toRet->prev = NULL;
 	return toRet;
 }
 
@@ -97,13 +100,39 @@ Ball* CreateBall(void)
 	return (struct Ball*)malloc(sizeof(struct Ball));
 }
 
+void RemoveBallListNode(BallList* curBL)
+{
+	if (bl = curBL) {
+		bl = curBL->next;
+	}
+
+	if (curBL->prev && curBL->next)
+	{
+		BallList* temp = curBL->prev;
+		temp->next = curBL->next;
+		temp->next->prev = temp;
+	}
+	else if (curBL->prev)
+	{
+		curBL->prev->next = curBL->next;
+	}
+	else if (curBL->next)
+	{
+		curBL->next->prev = curBL->prev;
+	}
+	//curBL->prev = NULL;
+	//curBL->next = NULL;
+	free(curBL);
+}
+
+//	TODO: Do some refactoring to make it obvious it deletes the entire list and not just a node
+//		Tecnically you can figure it out because it doesn't say Node, but should probably be clear
 void DestroyBallList(void)
 {
 	BallList* preBL = bl;
 	BallList* curBL = preBL;
 	while (curBL)
 	{
-		//free(curBL->ball);
 		DestroyBall(curBL->ball);
 		curBL = curBL->next;
 		free(preBL);
@@ -142,6 +171,7 @@ void InitGame(void)
 
 	//bl = CreateBallList();
 	BallList* curBL = CreateBallList();
+	BallList* newBL = NULL;
 	bl = curBL;
 	Ball* newBall = CreateBall();
 	
@@ -150,49 +180,67 @@ void InitGame(void)
 	{
 		newBall = CreateBall();
 		newBall->position = (Vector2){ gridMinX + (10 * i), gridMinY + (10 * i) };
-		newBall->speed = (Vector2){ 100 + (i * 10), 120 };
+		newBall->speed = (Vector2){ 100 + (i * SQUARE_SIZE), 120 };
 		newBall->radius = defaultRadius;
-		newBall->owner = i % 5;
+		newBall->owner = (enum TeamID)(i % 5);
 		curBL->ball = newBall;
 
-		curBL->next = CreateBallList();
+		newBL = CreateBallList();
+		newBL->prev = curBL;
+
+		curBL->next = newBL;
 		curBL = curBL->next;
 	}
 
 	newBall = CreateBall();
-	newBall->position = (Vector2){ gridMinX + (10 * startBalls), gridMinY + (10 * startBalls) };
+	newBall->position = (Vector2){ gridMinX + (startBalls * SQUARE_SIZE), gridMinY + (10 * startBalls) };
 	newBall->speed = (Vector2){ 100, 120 };
 	newBall->radius = defaultRadius;
-	newBall->owner = startBalls % 5;
+	newBall->owner = (enum TeamID)(startBalls % 5);
 	curBL->ball = newBall;
 }
 
-void UpdateBall(Ball* ball, float delta)
+int UpdateBall(Ball* ball, float delta)
 {
 	ball->position.x += ball->speed.x * delta;
 	ball->position.y += ball->speed.y * delta;
 
-	if ( (ball->position.x > gridMaxX) & (ball->speed.x > 0) )
+	if ( (ball->position.x > gridMaxX) && (ball->speed.x > 0) )
 	{
 			ball->speed.x *= -1;
 			ball->position.x -= (ball->position.x - (float)gridMaxX) * 2;
 	}
-	else if ( (ball->position.x < gridMinX) & (ball->speed.x < 0) )
+	else if ( (ball->position.x < gridMinX) && (ball->speed.x < 0) )
 	{
 			ball->speed.x *= -1;
 			ball->position.x += ((float)gridMinX - ball->position.x) * 2;
 	}
 
-	if ( (ball->position.y > gridMaxY) & (ball->speed.y > 0) )
+	if ( (ball->position.y > gridMaxY) && (ball->speed.y > 0) )
 	{
 			ball->speed.y *= -1;
 			ball->position.y -= (ball->position.y - (float)gridMaxY) * 2;
 	}
-	else if ( (ball->position.y < gridMinY) & (ball->speed.y < 0) )
+	else if ( (ball->position.y < gridMinY) && (ball->speed.y < 0) )
 	{
 			ball->speed.y *= -1;
 			ball->position.y += ((float)gridMinY - ball->position.y) * 2;
 	}
+
+	//	Check square underneath. If on differnt size, change to side and consume ball
+	
+	int sx = ((int)((ball->position.x - gridMinX) / SQUARE_SIZE));
+	int sy = ((int)((ball->position.y - gridMinY) / SQUARE_SIZE));
+	Square* curSquare = &squares[sx][sy];
+	if (ball->owner != curSquare->owner)
+	{
+		printf("ball team %i != square team %i\n", ball->owner, curSquare->owner);
+		curSquare->owner = ball->owner;
+		printf("c ball team %i != square team %i\n", ball->owner, curSquare->owner);
+		return 1;
+	}	
+	printf("ball team %i == square team %i\n", ball->owner, curSquare->owner);
+	return 0;
 }
 
 void UpdateGame(void)
@@ -202,8 +250,25 @@ void UpdateGame(void)
 	BallList* curBL = bl;
 	while (curBL)
 	{
-		UpdateBall(curBL->ball, delta);
-		curBL = curBL->next;
+		printf("There's still a ball");
+		switch(UpdateBall(curBL->ball, delta))
+		{
+			case 0:
+				curBL = curBL->next;
+				break;
+			case 1:
+				if (curBL != NULL && curBL->next == NULL) {
+					RemoveBallListNode(curBL);
+					curBL = NULL;
+				}
+				else
+				{
+					curBL = curBL->next;
+					RemoveBallListNode(curBL->prev);
+				}
+				break;
+
+		}
 	}
 }
 
