@@ -14,7 +14,7 @@ enum TeamID {
 	TEAM2,
 	TEAM3,
 	TEAM4,
-	NONE
+	NOTEAM
 };
 
 typedef struct Square {
@@ -49,10 +49,12 @@ static const int defaultRadius = 2;
 static const int defaultOutline = 3;
 
 static Square squares[SQUARE_ROWS][SQUARE_COLUMNS] = { 0 };
-static BallList* bl = { 0 };
+static BallList* startBL = NULL;
 
 static BallList* CreateBallList(void);
 static Ball* CreateBall(void);
+static void PrintBalls(void);
+static void AddBall(Ball* newBall);
 static void RemoveBallListNode(BallList* curBL);
 static void DestroyBallList(void);
 static void DestroyBall(Ball* ball);
@@ -100,17 +102,61 @@ Ball* CreateBall(void)
 	return (struct Ball*)malloc(sizeof(struct Ball));
 }
 
+void AddBall(Ball* newBall)
+{
+	BallList* newBallList = CreateBallList();
+	newBallList->ball = newBall;
+
+	if (startBL != NULL)
+	{
+		newBallList->next = startBL;
+		startBL->prev = newBallList;
+	}
+	startBL = newBallList;
+}
+
+void PrintBalls(void)
+{
+	printf("+++++++++++++\n");
+	if (!startBL)
+	{
+		printf("No Balls\n");
+		usleep(1000000);
+	}
+	BallList* curBL = startBL;
+	Ball* ball = NULL;
+	int i = 0;
+	while (curBL)
+	{
+		ball = curBL->ball;
+		printf("Ball %i\n", i);
+		printf("\tball.position(%f, %f)\n", ball->position.x, ball->position.y);
+		printf("\tball.speed(%f, %f)\n", ball->speed.x, ball->speed.y);
+		printf("\tball.radius(%i)\n", ball->radius);
+		printf("\tball.owner(%i)\n", ball->owner);
+		if (!curBL->next) {
+			printf("\tNo curBL->next\n");
+		}
+		if (!curBL->prev) {
+			printf("\tNo curBL->prev\n");
+	}
+		curBL = curBL->next;
+		i++;
+	}
+	printf("-------------\n");
+}
+
 void RemoveBallListNode(BallList* curBL)
 {
-	if (bl = curBL) {
-		bl = curBL->next;
-	}
 
+	if (startBL == curBL) {
+		startBL = curBL->next;
+	}
 	if (curBL->prev && curBL->next)
 	{
 		BallList* temp = curBL->prev;
 		temp->next = curBL->next;
-		temp->next->prev = temp;
+		curBL->next->prev = temp;
 	}
 	else if (curBL->prev)
 	{
@@ -120,8 +166,7 @@ void RemoveBallListNode(BallList* curBL)
 	{
 		curBL->next->prev = curBL->prev;
 	}
-	//curBL->prev = NULL;
-	//curBL->next = NULL;
+
 	free(curBL);
 }
 
@@ -129,7 +174,7 @@ void RemoveBallListNode(BallList* curBL)
 //		Tecnically you can figure it out because it doesn't say Node, but should probably be clear
 void DestroyBallList(void)
 {
-	BallList* preBL = bl;
+	BallList* preBL = startBL;
 	BallList* curBL = preBL;
 	while (curBL)
 	{
@@ -169,35 +214,17 @@ void InitGame(void)
 		}
 	}
 
-	//bl = CreateBallList();
-	BallList* curBL = CreateBallList();
-	BallList* newBL = NULL;
-	bl = curBL;
-	Ball* newBall = CreateBall();
-	
-	int startBalls = 5;
-	for (int i = 1; i < startBalls; i++)
+	int startBalls = 10;
+	for (int i = 0; i < startBalls; i++)
 	{
-		newBall = CreateBall();
-		newBall->position = (Vector2){ gridMinX + (10 * i), gridMinY + (10 * i) };
-		newBall->speed = (Vector2){ 100 + (i * SQUARE_SIZE), 120 };
+		Ball* newBall = CreateBall();
+		newBall->position = (Vector2){ gridMinX + (SQUARE_SIZE * i), gridMinY + (SQUARE_SIZE * i) };
+		newBall->speed = (Vector2){ 20 + (i * SQUARE_SIZE), 120 };
 		newBall->radius = defaultRadius;
-		newBall->owner = (enum TeamID)(i % 5);
-		curBL->ball = newBall;
-
-		newBL = CreateBallList();
-		newBL->prev = curBL;
-
-		curBL->next = newBL;
-		curBL = curBL->next;
+		newBall->owner = (enum TeamID)(i % (NOTEAM + 1));
+		
+		AddBall(newBall);
 	}
-
-	newBall = CreateBall();
-	newBall->position = (Vector2){ gridMinX + (startBalls * SQUARE_SIZE), gridMinY + (10 * startBalls) };
-	newBall->speed = (Vector2){ 100, 120 };
-	newBall->radius = defaultRadius;
-	newBall->owner = (enum TeamID)(startBalls % 5);
-	curBL->ball = newBall;
 }
 
 int UpdateBall(Ball* ball, float delta)
@@ -234,30 +261,28 @@ int UpdateBall(Ball* ball, float delta)
 	Square* curSquare = &squares[sx][sy];
 	if (ball->owner != curSquare->owner)
 	{
-		printf("ball team %i != square team %i\n", ball->owner, curSquare->owner);
 		curSquare->owner = ball->owner;
-		printf("c ball team %i != square team %i\n", ball->owner, curSquare->owner);
-		return 1;
+		//return 1;
 	}	
-	printf("ball team %i == square team %i\n", ball->owner, curSquare->owner);
 	return 0;
 }
 
 void UpdateGame(void)
 {
 	float delta = GetFrameTime();
+	PrintBalls();
 
-	BallList* curBL = bl;
+	BallList* curBL = startBL;
 	while (curBL)
 	{
-		printf("There's still a ball");
+		PrintBalls();
 		switch(UpdateBall(curBL->ball, delta))
 		{
 			case 0:
 				curBL = curBL->next;
 				break;
 			case 1:
-				if (curBL != NULL && curBL->next == NULL) {
+				if (curBL->next == NULL) {
 					RemoveBallListNode(curBL);
 					curBL = NULL;
 				}
@@ -267,7 +292,6 @@ void UpdateGame(void)
 					RemoveBallListNode(curBL->prev);
 				}
 				break;
-
 		}
 	}
 }
@@ -293,7 +317,7 @@ Color GetTeamColor(enum TeamID owner)
 }
 
 void DrawBalls(void) {
-	BallList* curBL = bl;
+	BallList* curBL = startBL;
 	while (curBL) {
 		DrawCircleV(curBL->ball->position, curBL->ball->radius + defaultOutline, ballOutline);
 		DrawCircleV(curBL->ball->position, curBL->ball->radius, GetTeamColor(curBL->ball->owner));
