@@ -1,2 +1,16 @@
 Hitbox checking
 Remove printfs
+
+There should be a launcher struct
+
+...in hindsight I could have just had an entity linked list
+	I could just use a union var in a struct
+
+Maybe give hitpoints to each ball, so they do a little more damage?
+Also, I can do the calculations for the closest square crosses to test more than one square.
+	Instead of just checking the position, check the 4 corners.
+
+Actually:
+	Get the minimum and maximum x index
+	Get the minimum and maximum y index
+	Do a check for all in between these ranges to see if the radius hits
