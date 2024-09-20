@@ -38,7 +38,9 @@ typedef struct BallList {
 
 typedef struct Launcher {
 	Vector2 position;
-	Vector2 velocity;
+	//Vector2 velocity;
+	float spawnSpeed;
+	float spawnAngle;
 	float lastRelease;
 	enum TeamID owner;
 } Launcher;
@@ -48,6 +50,18 @@ typedef struct LauncherList {
 	struct LauncherList* next;
 	struct LauncherList* prev;
 } LauncherList;
+
+typedef struct Plinko {
+	Vector2 minLoc;
+	Vector2 maxLoc;
+	enum TeamID owner;
+} Plinko;
+
+typedef struct PlinkoList {
+	Plinko* plinko;
+	struct PlinkoList* next;
+	struct PlinkoList* prev;
+} PlinkoList;
 
 static const Color ballOutline = DARKGRAY;//BLACK;
 
@@ -62,14 +76,15 @@ static const int gridMaxY = gridMinY + SQUARE_SIZE * SQUARE_COLUMNS;
 
 static const int defaultRadius = 2;
 static const int defaultOutline = 3;
-static const int defaultHealth = 16;
+static const int defaultHealth = 4;
 
 static Square squares[SQUARE_ROWS][SQUARE_COLUMNS] = { 0 };
 static BallList* startBL = NULL;
 static LauncherList* startLL = NULL;
+static PlinkoList* startPL = NULL;
 
 //	Temporary ball spawner test
-static float spawnInterval = 2.0f;
+static float spawnInterval = 1.0f;
 //	---------------------------
 
 static void PrintBalls(void);
@@ -77,42 +92,64 @@ static void PrintBalls(void);
 static BallList* CreateBallList(void);
 static Ball* CreateBall(float px, float py, float sx, float sy, int health, int radius, enum TeamID owner);
 static LauncherList* CreateLauncherList(void);
-static Launcher* CreateLauncher(float px, float py, float sx, float sy, float lastRelease, enum TeamID owner);
+static Launcher* CreateLauncher(float px, float py, float speed, float angle, float lastRelease, enum TeamID owner);
+static PlinkoList* CreatePlinkoList(void);
+static Plinko* CreatePlinko(Vector2 minLoc, Vector2 maxLoc, enum TeamID owner);
 
 static void AddBall(Ball* newBall);
 static void AddLauncher(Launcher* newLauncher);
+static void AddPlinko(Plinko* newPlinko);
 
 static void RemoveBallListNode(BallList* curBL);
 static void RemoveLauncherListNode(LauncherList* curLL);
+static void RemovePlinkoListNode(PlinkoList* curPL);
 
 static void DestroyBallList(void);
 static void DestroyBall(Ball* ball);
+
 static void DestroyLauncherList(void);
 static void DestroyLauncher(Launcher* launcher);
 
-static void InitGame(void);
+static void DestroyPlinkoList(void);
+static void DestroyPlinko(Plinko* plinko);
+
+static void InitGame(float curTime, float delta);
+
 static int UpdateBall(Ball* ball, float delta);
 static void UpdateBallList(float delta);
+
 static int UpdateLauncher(Launcher* launcher, float curTime, float delta);
 static void UpdateLauncherList(float curTime, float delta);
-static void UpdateGame(void);
+
+static int UpdatePlinko(Plinko* plinko, float curTime, float delta);
+static void UpdatePlinkoList(float curTime, float delta);
+
+static void UpdateGame(float curTime, float delta);
 
 static Color GetTeamColor(enum TeamID owner);
+
 static void DrawBalls(void);
-static void DrawLaunchers(void);
-static void DrawGame(void);
+static void DrawLaunchers(float curTime, float delta);
+static void DrawPlinkos(float curTime, float delta);
+
+static void DrawGame(float curTime, float delta);
 
 int main(void)
 {
 	InitWindow(screenWidth, screenHeight, "raylib [core] example - basic window");
 	SetTargetFPS(60);
 	
-	InitGame();
-	DrawGame();
+	float curTime = GetTime();
+	float delta = GetFrameTime();
+	InitGame(curTime, delta);
+	DrawGame(curTime, delta);
 	while (!WindowShouldClose())
 	{
-		UpdateGame();
-		DrawGame();
+		curTime = GetTime();
+		delta = GetFrameTime();
+
+		UpdateGame(curTime, delta);
+		DrawGame(curTime, delta);
 	}
 	CloseWindow();
 	DestroyBallList();
@@ -185,12 +222,32 @@ LauncherList* CreateLauncherList(void)
 	return toRet;
 }
 
-Launcher* CreateLauncher(float px, float py, float sx, float sy, float lastRelease, enum TeamID owner)
+Launcher* CreateLauncher(float px, float py, float speed, float angle, float lastRelease, enum TeamID owner)
 {
 	Launcher* toRet = (struct Launcher*)malloc(sizeof(struct Launcher));
 	toRet->position = (Vector2){ px, py };
-	toRet->velocity = (Vector2){ sx, sy };
+	//toRet->velocity = (Vector2){ sx, sy };
+	toRet->spawnSpeed = speed;
+	toRet->spawnAngle = angle;
 	toRet->lastRelease = lastRelease;
+	toRet->owner = owner;
+	return toRet;
+}
+
+PlinkoList* CreatePlinkoList(void)
+{
+	PlinkoList* toRet = (struct PlinkoList*)malloc(sizeof(struct PlinkoList));
+	toRet->plinko = NULL;
+	toRet->next = NULL;
+	toRet->prev = NULL;
+	return toRet;
+}
+
+Plinko* CreatePlinko(Vector2 minLoc, Vector2 maxLoc, enum TeamID owner)
+{
+	Plinko* toRet = (struct Plinko*)malloc(sizeof(struct Plinko));
+	toRet->minLoc = minLoc;
+	toRet->maxLoc = maxLoc;
 	toRet->owner = owner;
 	return toRet;
 }
@@ -219,6 +276,19 @@ void AddLauncher(Launcher* newLauncher)
 		startLL->prev = newLauncherList;
 	}
 	startLL = newLauncherList;
+}
+
+void AddPlinko(Plinko* newPlinko)
+{
+	PlinkoList* newPlinkoList = CreatePlinkoList();
+	newPlinkoList->plinko = newPlinko;
+
+	if (startLL != NULL)
+	{
+		newPlinkoList->next = startLL;
+		startLL->prev = newPlinkoList;
+	}
+	startLL = newPlinkoList;
 }
 
 void RemoveBallListNode(BallList* curBL)
@@ -269,6 +339,30 @@ void RemoveLauncherListNode(LauncherList* curLL)
 	free(curLL);
 }
 
+void RemovePlinkoListNode(PlinkoList* curPL)
+{
+	if (startPL == curPL) {
+		startPL = curPL->next;
+	}
+
+	if (curPL->prev && curPL->next)
+	{
+		PlinkoList* temp = curPL->prev;
+		temp->next = curPL->next;
+		curPL->next->prev = temp;
+	}
+	else if (curPL->prev)
+	{
+		curPL->prev->next = curPL->next;
+	}
+	else if (curPL->next)
+	{
+		curPL->next->prev = curPL->prev;
+	}
+
+	free(curPL);
+}
+
 //	TODO: Do some refactoring to make it obvious it deletes the entire list and not just a node
 //		Tecnically you can figure it out because it doesn't say Node, but should probably be clear
 void DestroyBallList(void)
@@ -307,10 +401,27 @@ void DestroyLauncher(Launcher* launcher)
 	free(launcher);
 }
 
-//	Game Logic
-void InitGame(void)
+void DestroyPlinkoList(void)
 {
-	float startTime = GetTime();
+	PlinkoList* prePL = startPL;
+	PlinkoList* curPL = prePL;
+	while (curPL)
+	{
+		DestroyPlinko(curPL->plinko);
+		curPL = curPL->next;
+		free(prePL);
+		prePL = curPL;
+	}
+}
+
+void DestroyPlinko(Plinko* plinko)
+{
+	free(plinko);
+}
+
+//	Game Logic
+void InitGame(float curTime, float delta)
+{
 	for (int i = 0; i < SQUARE_ROWS/2; i++) {
 		for (int j = 0; j < SQUARE_COLUMNS/2; j++) {
 			squares[i][j].owner = TEAM1;
@@ -348,18 +459,22 @@ void InitGame(void)
 	}
 	*/
 
-	AddLauncher(CreateLauncher(gridMinX + (SQUARE_SIZE * 2), gridMinY + (SQUARE_SIZE * 2),
-			200.0, 50.0,
-			startTime, TEAM1));
-	AddLauncher(CreateLauncher(gridMaxX - (SQUARE_SIZE * 2), gridMinY + (SQUARE_SIZE * 2),
-			-50.0, 200.0,
-			startTime, TEAM2));
-	AddLauncher(CreateLauncher(gridMinX + (SQUARE_SIZE * 2), gridMaxY - (SQUARE_SIZE * 2),
-			50.0, -200.0,
-			startTime, TEAM3));
-	AddLauncher(CreateLauncher(gridMaxX - (SQUARE_SIZE * 2), gridMaxY - (SQUARE_SIZE * 2),
-			-200.0, -50.0,
-			startTime, TEAM4));
+	AddLauncher(CreateLauncher(gridMinX + (SQUARE_SIZE * 3), gridMinY + (SQUARE_SIZE * 3),
+			//200.0, 50.0,
+			200.0, 3.1415/2.0,
+			curTime, TEAM1));
+	AddLauncher(CreateLauncher(gridMaxX - (SQUARE_SIZE * 3), gridMinY + (SQUARE_SIZE * 3),
+			//-50.0, 200.0,
+			200.0, (3.1415 * 3.0)/2.0,
+			curTime, TEAM2));
+	AddLauncher(CreateLauncher(gridMinX + (SQUARE_SIZE * 3), gridMaxY - (SQUARE_SIZE * 3),
+			//50.0, -200.0,
+			200.0, (3.1415 * 7.0)/2.0,
+			curTime, TEAM3));
+	AddLauncher(CreateLauncher(gridMaxX - (SQUARE_SIZE * 3), gridMaxY - (SQUARE_SIZE * 3),
+			//-200.0, -50.0,
+			200.0, (3.1415 * 5.0)/2.0,
+			curTime, TEAM4));
 }
 
 int UpdateBall(Ball* ball, float delta)
@@ -398,10 +513,10 @@ int UpdateBall(Ball* ball, float delta)
 	{
 		curSquare->owner = ball->owner;
 		ball->health--;
-		printf("%i\n", ball->health);
+		//printf("%i\n", ball->health);
 		if (ball->health <= 0)
 		{
-			printf("%i\n", ball->health);
+			//printf("%i\n", ball->health);
 			return 1;
 		}
 	}	
@@ -437,13 +552,16 @@ void UpdateBallList(float delta)
 int UpdateLauncher(Launcher* launcher, float curTime, float delta)
 {
 	float timePassed = curTime - launcher->lastRelease;
-	launcher->velocity.x = 100 * sin(curTime/2);
-	launcher->velocity.y = 100 * cos(curTime/2);
+	//launcher->velocity.x = 100 * cos(curTime/2);
+	//launcher->velocity.y = 100 * sin(curTime/2);
 	if ( timePassed > spawnInterval )
 	{
 		Ball* newBall = CreateBall(
 					launcher->position.x, launcher->position.y, 
-					launcher->velocity.x, launcher->velocity.y, 
+					100 * cos((curTime + launcher->spawnAngle)/2),
+					100 * sin((curTime + launcher->spawnAngle)/2),
+					//100 * cos((launcher->spawnAngle)/2),
+					//100 * sin((launcher->spawnAngle)/2),
 					defaultHealth,
 					defaultRadius,
 					launcher->owner
@@ -480,13 +598,23 @@ void UpdateLauncherList(float curTime, float delta)
 	}
 }
 
-void UpdateGame(void)
+int UpdatePlinko(Plinko* plinko, float curTime, float delta)
 {
-	float curTime = GetTime();
-	float delta = GetFrameTime();
+	return 0;
+}
+
+void UpdatePlinkoList(float curTime, float delta)
+{
+	//	Delete
+	return;
+}
+
+void UpdateGame(float curTime, float delta)
+{
 	PrintBalls();
 	UpdateBallList(delta);
 	UpdateLauncherList(curTime, delta);
+	UpdatePlinkoList(curTime, delta);
 	
 	//	TODO:
 	//		UpdateBall should check for and update launcher states
@@ -530,25 +658,36 @@ void DrawBalls(void)
 	}
 }
 
-void DrawLaunchers(void)
+void DrawLaunchers(float curTime, float delta)
 {
 	LauncherList* curLL = startLL;
 	while (curLL) {
+		float lineLen = curLL->launcher->spawnSpeed / 10;
 		Vector2 endPos = (Vector2){
-				curLL->launcher->position.x + curLL->launcher->velocity.x,
-				curLL->launcher->position.y + curLL->launcher->velocity.y
+				curLL->launcher->position.x + (lineLen * cos((curTime + curLL->launcher->spawnAngle)/2)),
+				curLL->launcher->position.y + (lineLen * sin((curTime + curLL->launcher->spawnAngle)/2))
 			};
-		DrawLineEx(curLL->launcher->position,
-//				Vector2Add(curLL->launcher->position, curLL->launcher->velocity),
-				endPos,
-				5.0,
-				BLACK);
-				//GetTeamColor(curLL->launcher->owner));
+		Vector2 startPosIn = (Vector2){
+				curLL->launcher->position.x + ((lineLen / 8) * cos((curTime + curLL->launcher->spawnAngle)/2)),
+				curLL->launcher->position.y + ((lineLen / 8) * sin((curTime + curLL->launcher->spawnAngle)/2))
+			};
+		Vector2 endPosIn = (Vector2){
+				curLL->launcher->position.x + (((lineLen * 7) / 8) * cos((curTime + curLL->launcher->spawnAngle)/2)),
+				curLL->launcher->position.y + (((lineLen * 7) / 8) * sin((curTime + curLL->launcher->spawnAngle)/2))
+			};
+		DrawLineEx(curLL->launcher->position, endPos, 5.0f, BLACK);
+		DrawLineEx(startPosIn, endPosIn, 2.0f, GetTeamColor(curLL->launcher->owner));
 		curLL = curLL->next;
 	}
 }
 
-void DrawGame(void)
+void DrawPlinkos(float curTime, float delta)
+{
+	//	Delete
+	return;	
+}
+
+void DrawGame(float curTime, float delta)
 {
 	BeginDrawing();
 	ClearBackground(BLACK);
@@ -563,6 +702,7 @@ void DrawGame(void)
 		}
 	}
 	DrawBalls();
-	DrawLaunchers();
+	DrawLaunchers(curTime, delta);
+	DrawPlinkos(curTime, delta);
 	EndDrawing();
 }

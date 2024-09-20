@@ -14,3 +14,9 @@ Actually:
 	Get the minimum and maximum x index
 	Get the minimum and maximum y index
 	Do a check for all in between these ranges to see if the radius hits
+
+
+Need to add to plinko:
+	pucks
+	slots
+	obstacles (pins)
